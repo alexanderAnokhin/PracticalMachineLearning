@@ -77,6 +77,15 @@ ggplot(train.in, aes(classe)) +
   geom_bar(aes(fill = user_name)) +
   ggtitle("Distribution by users")
 
+## In many cases it is easier to work with encoded factor variables, so
+## all predictors are numerical. Here is used one hot encoder to achive
+## the goal.
+
+encoded.factors.train <- model.matrix(~ user_name + 0, data=train.in)
+encoded.factors.test <- model.matrix(~ user_name + 0, data=test.in)
+train.in <- data.frame(select(train.in, -user_name), encoded.factors.train)
+test.in <- data.frame(select(test.in, -user_name), encoded.factors.test)
+
 library(GGally)
 
 set.seed(20170803)
@@ -94,12 +103,48 @@ gc()
 
 # Building models
 ## Splitting data into train and test
+set.seed(20170803)
+
+train.in <- train.in %>% 
+  mutate(classe = as.numeric(classe) - 1)
+
 inTrain <- createDataPartition(train.in$classe, p = 0.85)[[1]]
 
 train = train.in[inTrain, ]
 test = train.in[-inTrain, ]
 
-fit.rf <- train(classe ~ ., data = train, method = "rf")
-fit.gbm <- train(classe ~ ., data = train, method = "gbm")
+## Boosting and Random Forests
+control <- trainControl(method = "none")
 
+fit.rf <- train(I(as.factor(classe)) ~ ., data = train, method = "rf", trControl = control)
+fit.gbm <- train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = control)
 
+predictions.rf <- predict(fit.rf, test)
+predictions.gbm <- predict(fit.gbm, test)
+
+confusionMatrix(data = predictions.rf, reference = test$classe)
+confusionMatrix(data = predictions.gbm, reference = test$classe)
+
+## XGBoost
+library(xgboost)
+
+classes <- length(unique(train$classe))
+
+params <- list(
+  "objective" = "multi:softprob",
+  "eval_metric" = "mlogloss",
+  "num_class" = classes)
+
+D <- xgb.DMatrix(as.matrix(train %>% select(-classe)), label = train$classe)
+fit.xgb <- xgboost(data = D, params = params, nrounds = 200)
+
+D <- xgb.DMatrix(as.matrix(test %>% select(-classe)))
+predictions.raw <- predict(fit.xgb, D)
+predictions <- matrix(
+  predictions.raw, 
+  nrow = classes,
+  ncol=length(predictions.raw) / classes) %>%
+  t() %>%
+  apply(1, function(x) { which.max(x) - 1 })
+
+confusionMatrix(data = predictions, reference = test$classe)
