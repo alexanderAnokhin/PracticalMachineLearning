@@ -105,8 +105,7 @@ gc()
 ## Splitting data into train and test
 set.seed(20170803)
 
-train.in <- train.in %>% 
-  mutate(classe = as.numeric(classe) - 1)
+train.in <- train.in %>% mutate(classe = as.numeric(classe) - 1)
 
 inTrain <- createDataPartition(train.in$classe, p = 0.85)[[1]]
 
@@ -114,15 +113,26 @@ train = train.in[inTrain, ]
 test = train.in[-inTrain, ]
 
 ## Boosting and Random Forests
-control <- trainControl(method = "none")
 
-fit.rf <- train(I(as.factor(classe)) ~ ., data = train, method = "rf", trControl = control)
-fit.gbm <- train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = control)
+## It seems to be it is well parametrized by default, the accuracy quite high and there
+## is no need for complications such as cross validation.
+fit.rf <- train(I(as.factor(classe)) ~ ., data = train, method = "rf", trControl = trainControl(method = "none"))
 
 predictions.rf <- predict(fit.rf, test)
-predictions.gbm <- predict(fit.gbm, test)
-
 confusionMatrix(data = predictions.rf, reference = test$classe)
+
+## The accuracy with default settings is quite low compared to Random Forest model, so
+## crossvalidation can be used for hyperparameter tuning.
+fit.gbm <- train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = trainControl(method = "none"))
+
+predictions.gbm <- predict(fit.gbm, test)
+confusionMatrix(data = predictions.gbm, reference = test$classe)
+
+control <- trainControl(method = "cv", number = 2, search = "grid", verboseIter = T)
+grid <- expand.grid(interaction.depth = c(2, 3, 5), shrinkage = c(.001, .01, .01), n.minobsinnode = c(1, 10, 50), n.trees = 200)
+
+fit.gbm <- train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = control, tuneGrid = grid, metric='Accuracy')
+predictions.gbm <- predict(fit.gbm, test)
 confusionMatrix(data = predictions.gbm, reference = test$classe)
 
 ## XGBoost
@@ -139,12 +149,17 @@ D <- xgb.DMatrix(as.matrix(train %>% select(-classe)), label = train$classe)
 fit.xgb <- xgboost(data = D, params = params, nrounds = 200)
 
 D <- xgb.DMatrix(as.matrix(test %>% select(-classe)))
-predictions.raw <- predict(fit.xgb, D)
-predictions <- matrix(
-  predictions.raw, 
+predictions.xgb.raw <- predict(fit.xgb, D)
+predictions.xgb <- matrix(
+  predictions.xgb.raw, 
   nrow = classes,
-  ncol=length(predictions.raw) / classes) %>%
+  ncol=length(predictions.xgb.raw) / classes) %>%
   t() %>%
   apply(1, function(x) { which.max(x) - 1 })
 
 confusionMatrix(data = predictions, reference = test$classe)
+
+## Combining predictors into one ansemble
+predictions <- data.frame("rf" = predictions.rf, "gbm" = predictions.gbm, "xgb" = predictions.xgb)
+apply(predictions, 1, function(x) {  }) ## TODO combine predictions  
+  
