@@ -77,15 +77,6 @@ ggplot(train.in, aes(classe)) +
   geom_bar(aes(fill = user_name)) +
   ggtitle("Distribution by users")
 
-## In many cases it is easier to work with encoded factor variables, so
-## all predictors are numerical. Here is used one hot encoder to achive
-## the goal.
-
-encoded.factors.train <- model.matrix(~ user_name + 0, data=train.in)
-encoded.factors.test <- model.matrix(~ user_name + 0, data=test.in)
-train.in <- data.frame(select(train.in, -user_name), encoded.factors.train)
-test.in <- data.frame(select(test.in, -user_name), encoded.factors.test)
-
 library(GGally)
 
 set.seed(20170803)
@@ -95,41 +86,68 @@ columns.to.plot <- sample(columns.to.select, 12)
 to.plot.one <- train.in %>% select(columns.to.plot[1:6], classe) %>% sample_frac(0.2)
 to.plot.two <- train.in %>% select(columns.to.plot[7:12], classe) %>% sample_frac(0.2)
 
-ggpairs(to.plot.one, aes(colour = classe, alpha = 0.4))
+g1 <- ggpairs(to.plot.one, aes(colour = classe, alpha = 0.4))
+suppressMessages(print(g))
+
 ggpairs(to.plot.two, aes(colour = classe, alpha = 0.4))
 
-rm(to.plot.one, to.plot.two)
-gc()
+## In many cases it is easier to work with encoded factor variables, so
+## all predictors are numerical. Here is used one-hot-encoder to achive
+## the goal.
+
+encoded.factors.train <- model.matrix(~ user_name + 0, data=train.in)
+encoded.factors.test <- model.matrix(~ user_name + 0, data=test.in)
+train.in <- data.frame(select(train.in, -user_name), encoded.factors.train)
+test.in <- data.frame(select(test.in, -user_name), encoded.factors.test)
 
 # Building models
 ## Splitting data into train and test
-set.seed(20170803)
 
+
+## Making indexing from zero
 train.in <- train.in %>% mutate(classe = as.numeric(classe) - 1)
 
+set.seed(20170803)
 inTrain <- createDataPartition(train.in$classe, p = 0.85)[[1]]
 
 train = train.in[inTrain, ]
 test = train.in[-inTrain, ]
+
+c(length(train$classe), length(test$classe))
+
+## Removing unused variables and calling explicitly carbage collector.
+rm(
+  to.plot.one, 
+  to.plot.two, 
+  encoded.factors.test, 
+  encoded.factors.train, 
+  encoded.factors.test,
+  columns.to.plot,
+  columns.to.select,
+  fit,
+  is.numeric.columns,
+  nas.ratios,
+  unique.ratios,
+  inTrain)
+gc()
 
 ## Boosting and Random Forests
 
 ## It seems to be it is well parametrized by default, the accuracy quite high and there
 ## is no need for complications such as cross validation.
 fit.rf <- train(I(as.factor(classe)) ~ ., data = train, method = "rf", trControl = trainControl(method = "none"))
-
 predictions.rf <- predict(fit.rf, test)
-confusionMatrix(data = predictions.rf, reference = test$classe)
+m <- confusionMatrix(data = predictions.rf, reference = test$classe)
+
 
 ## The accuracy with default settings is quite low compared to Random Forest model, so
 ## crossvalidation can be used for hyperparameter tuning.
 fit.gbm <- train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = trainControl(method = "none"))
-
 predictions.gbm <- predict(fit.gbm, test)
-confusionMatrix(data = predictions.gbm, reference = test$classe)
+m <- confusionMatrix(data = predictions.gbm, reference = test$classe)
 
-control <- trainControl(method = "cv", number = 2, search = "grid", verboseIter = T)
-grid <- expand.grid(interaction.depth = c(2, 3, 5), shrinkage = c(.001, .01, .01), n.minobsinnode = c(1, 10, 50), n.trees = 200)
+control <- trainControl(method = "cv", number = 5, search = "grid", verboseIter = T)
+grid <- expand.grid(interaction.depth = c(3, 5), shrinkage = c(0.001, .01), n.minobsinnode = c(10, 20), n.trees = 200)
 
 fit.gbm <- train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = control, tuneGrid = grid, metric='Accuracy')
 predictions.gbm <- predict(fit.gbm, test)
@@ -146,7 +164,7 @@ params <- list(
   "num_class" = classes)
 
 D <- xgb.DMatrix(as.matrix(train %>% select(-classe)), label = train$classe)
-fit.xgb <- xgboost(data = D, params = params, nrounds = 200)
+fit.xgb <- xgboost(data = D, params = params, nrounds = 30)
 
 D <- xgb.DMatrix(as.matrix(test %>% select(-classe)))
 predictions.xgb.raw <- predict(fit.xgb, D)
@@ -157,9 +175,28 @@ predictions.xgb <- matrix(
   t() %>%
   apply(1, function(x) { which.max(x) - 1 })
 
-confusionMatrix(data = predictions, reference = test$classe)
+confusionMatrix(data = predictions.xgb, reference = test$classe)
 
-## Combining predictors into one ansemble
+## Combining predictors
 predictions <- data.frame("rf" = predictions.rf, "gbm" = predictions.gbm, "xgb" = predictions.xgb)
-apply(predictions, 1, function(x) {  }) ## TODO combine predictions  
-  
+
+x <- predictions %>% mutate(agree = rf == gbm & gbm == xgb)
+table(x$agree) / length(x$agree)
+
+## Making predictions for unknown cases
+predictions.rf <- predict(fit.rf, test.in)
+predictions.gbm <- predict(fit.gbm, test.in)
+D <- xgb.DMatrix(as.matrix(test.in))
+predictions.xgb.raw <- predict(fit.xgb, D)
+predictions.xgb <- matrix(
+  predictions.xgb.raw, 
+  nrow = classes,
+  ncol=length(predictions.xgb.raw) / classes) %>%
+  t() %>%
+  apply(1, function(x) { which.max(x) - 1 })
+
+predictions <- data.frame("rf" = predictions.rf, "gbm" = predictions.gbm, "xgb" = predictions.xgb)
+
+## Predictions do agree on 100% cases which gives 100% accuracy after submission.
+x <- predictions %>% mutate(agree = rf == gbm & gbm == xgb)
+table(x$agree) / length(x$agree) 
