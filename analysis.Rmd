@@ -1,7 +1,7 @@
 ---
 title: 'Peer-graded Assignment: Prediction Assignment'
 author: "Alexander A."
-date: "05.08.2017"
+date: "09.08.2017"
 output: 
   html_document:
     toc: true
@@ -10,25 +10,25 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_chunk$set(cache=TRUE)
 ```
 
 # Overview
 This project is accomplished in the context of the peer-graded assignment of the course ["Practical Machine Learining"](https://www.coursera.org/learn/practical-machine-learning/home/welcome). The goal of the project is to predict the manner in which people did the exercise.
 
 # Data
-The data were taken from the course [assignment webpage](https://www.coursera.org/learn/practical-machine-learning/peer/R43St/prediction-assignment-writeup) and represent records from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. There are in total `19622` observations and `160` variables including `classe` variable which represents the manner in which people did the exercise.
+The data were taken from the course [assignment webpage](https://www.coursera.org/learn/practical-machine-learning/peer/R43St/prediction-assignment-writeup) and represent records from accelerometers on the belt, forearm, arm, and dumbell of `6` participants. There are in total `19622` observations and `160` variables including `classe` variable which represents the manner in which people did the exercise.
 
 # Analysis
 ## Data Preprocessing
-First of all required packages as well as the data are loaded into `R`. The train data consist of `19622` observations and `160` variables including target `classe` variable that should be predicted. The test data consist of `20` cases that should be predicted and submitted. 
-```{r}
+First of all required packages as well as the data are loaded into `R`. The train data consist of `19622` observations and `160` variables including target `classe` variable that should be predicted. The test data consist of `20` observations that should be predicted and submitted to the grader. 
+```{r load}
 library(data.table, quietly = TRUE)
 library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
 library(tidyr, quietly = TRUE)
 library(caret, quietly = TRUE)
+library(xgboost, quietly = TRUE, warn.conflicts = FALSE)
 
-# it is expected that the data are in the same directory as the .Rmd file
+# it is expected that the data are in the same directory as the analysis.Rmd file
 train.in <- fread("pml-training.csv")
 test.in <- fread("pml-testing.csv")
 
@@ -36,8 +36,8 @@ dim(train.in)
 dim(test.in)
 ```
 
-Apparently, there are `#DIV/0!`'s in some numeric columns and so they were coerced in the wrond way to character vectors. The fix is to replace `#DIV/0!`'s to `NA`'s and coerce them to numeric vectors.
-```{r}
+Apparently, there are `#DIV/0!`'s in some numeric columns and so they were coerced in the wrond way to character columns. The fix is to replace `#DIV/0!`'s to `NA`'s and coerce them to numeric columns.
+```{r div.by.zero}
 has.div.by.zero <- function(x) {
   sum(x == "#DIV/0!", na.rm = T) > 0
 }
@@ -53,15 +53,15 @@ dim(train.in)
 ```
 
 Not all the predictors are valuable for the analysis. For example, some have near zero variance and therefore should be removed in order to reduce the unnecessary complexity of the model.
-```{r}
+```{r near.zero.var}
 fit <- nearZeroVar(train.in)
 train.in <- train.in %>% select(-fit)
 
 dim(train.in)
 ```
 
-Another problem of the data is that some predictors have so many `NA` values that makes them useless for a good model. Therefore such variables are excluded from the analysis.
-```{r}
+Another problem of the data is that some columns have so many `NA` values that makes them useless for a good model. Therefore such columns are excluded from the analysis.
+```{r nas}
 nas.ratios <- apply(train.in, 2, function(x) { sum(is.na(x)) / length(x) })
 
 sum(nas.ratios < .1)
@@ -73,8 +73,8 @@ train.in <- train.in %>% select(fit)
 dim(train.in)
 ```
 
-There are also variables with only unique values, such variables are also excluded from the analysis.
-```{r}
+There are also columns with only unique values, such columns are also excluded from the analysis.
+```{r unique.ratios}
 unique.ratios <- apply(train.in, 2, function(x) { length(unique(x)) / length(x) })
 
 names(unique.ratios)[unique.ratios > .9]
@@ -86,14 +86,14 @@ dim(train.in)
 ```
 
 The variable `cvtd_timestamp` is redundant having `raw_timestamp_part_1` and `raw_timestamp_part_2` therefore it should be axcluded as well.
-```{r}
+```{r ts}
 train.in <- train.in %>% select(-cvtd_timestamp)
 
 dim(train.in)
 ```
 
-The last step of data preprocessing procedure is to transfrom character variables to factors. In fact, there are only two variables that are factors, namely `user_name` and `classe`. After all data preprocessing step there are still `19622` observations and only `57` variables left including `classe` variable.
-```{r}
+The last step of data preprocessing procedure is to transfrom character columns to factors. In fact, there are only two columns that are factors, namely `user_name` and `classe`. After all data preprocessing steps there are still `19622` observations and only `57` variables left including `classe` variable.
+```{r numeric.columns}
 is.numeric.columns <- sapply(train.in, is.numeric)
 table(is.numeric.columns)
 names(train.in)[!is.numeric.columns]
@@ -106,20 +106,20 @@ dim(train.in)
 ```
 
 ## Exploratory Data Analysis
-There are five classes from `A` to `E`, the data a bit more skewed to the label `A`, but still, discrepancy is not that strong. 
-```{r}
+There are five classes from `A` to `E`, the data a bit more skewed to the label `A`. Still discrepancy is not that strong and there is no need for class balancing. 
+```{r table.by.class}
 table(train.in$classe)
 ```
 
-Since there is only one factor variable `user_name` it is easy to check how it is correlated with `classe` variable. It can be seen from the graph below that there is no bias at all and distribution of `classe` variable is more or less balanced across the `user_name` variable.
-```{r}
+Since there is only one factor variable `user_name` it is easy to check how it predicts `classe` variable. It can be seen from the graph below that there is no bias at all and distribution of `classe` variable is more or less balanced across the `user_name` variable.
+```{r first.plot, cache=TRUE}
 ggplot(train.in, aes(user_name)) + 
   geom_bar(aes(fill = classe)) +
   ggtitle("Distribution by users")
 ```
 
-There is some correlation between a sample numerical variables and `classe` variable, but it is hard to conclude something strong based on the scatterplots that underline only univarite interaction between variables.
-```{r}
+There is some correlation between a sample numerical variables and `classe` variable, but it is hard to conclude something strong based on the scatterplots that underline only univarite interactions between variables.
+```{r ggpairs.plot, cache=TRUE}
 library(GGally, quietly = TRUE, warn.conflicts = FALSE)
 
 set.seed(20170805)
@@ -137,8 +137,8 @@ suppressMessages(print(g2))
 ```
 
 ## Statistical modeling
-In many cases it is easier to work with encoded factor variables, so all the predictors are numerical. Here is used one-hot-encoder to achive the goal. Thus instead of of one factor variable `user-name` six numerical variables are created consisting of only two values `0` and `1`.
-```{r}
+In many cases it is easier to work with encoded factor variables, so all the predictors are numerical. Here is used one-hot-encoder to achive the goal. Thus instead of one factor variable `user_name` six numerical variables are created consisting of only two values `0` and `1`.
+```{r encoded.factors, cache=TRUE}
 encoded.factors.train <- model.matrix(~ user_name + 0, data=train.in)
 encoded.factors.test <- model.matrix(~ user_name + 0, data=test.in)
 train.in <- data.frame(select(train.in, -user_name), encoded.factors.train)
@@ -146,7 +146,7 @@ test.in <- data.frame(select(test.in, -user_name), encoded.factors.test)
 ```
 
 In order to ease computations target variable `classe` is reindexed from `0` to `4` where `0` corresponds to `A`, `1` to `B` and so on. For the purpose of testing the input data are splitted into train and test sets. The train set includes `16680` observations while the test set only `2942`.
-```{r}
+```{r splitting}
 train.in <- train.in %>% mutate(classe = as.numeric(classe) - 1)
 
 inTrain <- createDataPartition(train.in$classe, p = 0.85)[[1]]
@@ -157,8 +157,8 @@ test = train.in[-inTrain, ]
 c(length(train$classe), length(test$classe))
 ```
 
-In order to free RAM memory for model fitting unused variables are removed and garbage collectore is explicitly called.
-```{r}
+In order to free RAM memory for model fitting unused variables are removed and garbage collector is explicitly called.
+```{r rm}
 rm(
   train.in,
   to.plot.one, 
@@ -175,8 +175,8 @@ rm(
 gc()
 ```
 
-The first model is `Random Forest`. It performs very well with defaults parameters obtaining `99%` of accuracy on test data therefore there is no need for hyper-parameter optimization via validation or crossvalidation.
-```{r}
+The first model is `Random Forest`. It performs very well with defaults parameters obtaining `99.9%` of accuracy on test data therefore there is no need for hyper-parameter optimization via validation or crossvalidation.
+```{r rf.model, cache=TRUE}
 fit.rf <- suppressMessages(
   train(I(as.factor(classe)) ~ ., data = train, method = "rf", trControl = trainControl(method = "none")))
 predictions.rf <- predict(fit.rf, test)
@@ -185,39 +185,37 @@ m$table
 m$overall
 ```
 
-The second model is `Gradient Boosting Trees`. The perfromance of that model with default parameters is relatively low compared to `Random Forests`. The accuracy only achives about `82%` which is not acceptable.
-```{r results=F}
-fit.gbm <- suppressWarnings(
+The second model is `Gradient Boosting Trees`. The perfromance of that model with default parameters is relatively low compared to `Random Forests`. The accuracy only achives `81.8%` which is not acceptable.
+```{r gbm.model, results=F}
+fit.gbm <- suppressMessages(
   train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = trainControl(method = "none")))
 predictions.gbm <- predict(fit.gbm, test)
 m <- confusionMatrix(data = predictions.gbm, reference = test$classe)
 ```
 
-```{r}
+```{r results.gbm}
 m$table
 m$overall
 ```
 
-The typicall way to increase accuracy is hyper-parameter optimization employing cross-validation at every step to estimate out-of-sample error rate. Here the simpliest grid serach is used supported by `5`-fold cross-validation. 
-```{r results=F}
-control <- trainControl(method = "cv", number = 5, search = "grid")
+The typicall way to increase accuracy is hyper-parameter optimization employing cross-validation at every step to estimate out-of-sample error rate. Here the simpliest grid search is used supported by `2`-fold cross-validation to leverage execution time. The size of the search grid is only `8` combinations. This achives accuracy of `99.8%` which is a significant inprovement compared to previos model.
+```{r gbm.opt.model, results=F, cache=TRUE}
+control <- trainControl(method = "cv", number = 2, search = "grid")
 grid <- expand.grid(interaction.depth = c(3, 5), shrinkage = c(.01, .1), n.minobsinnode = c(10, 20), n.trees = 200)
 
-fit.gbm <- train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = control, tuneGrid = grid, metric='Accuracy')
-predictions.gbm <- predict(fit.gbm.opt, test)
+fit.gbm <- suppressWarnings(train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = control, tuneGrid = grid, metric='Accuracy'))
+predictions.gbm <- predict(fit.gbm, test)
 m <- confusionMatrix(data = predictions.gbm, reference = test$classe)
 ```
 
-```{r}
+```{r gbm.opt.model.results}
 m$table
 m$overall
 ```
 
 Another powerfull technique for statistical modeling is `Extreme Gradient Boosting`. This method is quite fast in terms of fitting time and normally provides good accuracy with default settings. The resulting accuracy hits the level of `98.6%` which is quite good having only `30` iterations and thereafter the least fitting time.
 
-```{r results=F}
-library(xgboost)
-
+```{r xgb.model, results=F, cache=TRUE}
 classes <- length(unique(train$classe))
 
 params <- list(
@@ -240,22 +238,22 @@ predictions.xgb <- matrix(
 m <- confusionMatrix(data = predictions.xgb, reference = test$classe)
 ```
 
-```{r}
+```{r xgb.results}
 m$table
 m$overall
 ```
 
 ## Prediction
-The agreement ratio of the models accounts for `98.5%` which gives the curtain hopes that out-of-sample error will be at least at that level.
-```{r}
-predictions <- data.frame("rf" = predictions.rf, "gbm" = predictions.gbm.opt, "xgb" = predictions.xgb)
+The agreement ratio of the models accounts for `98.6%` which gives the curtain hopes that out-of-sample error will be at least at that level.
+```{r predictions}
+predictions <- data.frame("rf" = predictions.rf, "gbm" = predictions.gbm, "xgb" = predictions.xgb)
 
 x <- predictions %>% mutate(agree = rf == gbm & gbm == xgb)
 table(x$agree) / length(x$agree)
 ```
 
-Now it is time to make predictions for the oservations with unknown target variable `classe`. The agreement accuracy is `100%` which is a good indicator. Submitting results to the automatic grader gives accuracy `100%`.
-```{r}
+Now it is time to make predictions for the oservations with unknown target variable `classe`. The agreement accuracy is `100%` which is a good indicator. Submitting results to the grader gives accuracy of `100%`.
+```{r prediction.test}
 predictions.rf <- predict(fit.rf, test.in)
 predictions.gbm <- predict(fit.gbm, test.in)
 D <- xgb.DMatrix(as.matrix(test.in))
@@ -276,5 +274,4 @@ table(x$rf)
 ```
 
 # Results
-The analysis resulted in robust three-model ansemble where the accuracy of every model on unseen dataset is greater than `98%`. The concepts of hyper-parameter-tuning and cross-validation helped to improve accuracy of `Gradient Boosting Classification Trees` from only `82%` to about `100%` accuracy.
-
+The analysis resulted in the robust three-model ansemble where the accuracy of every model on unseen dataset is greater than `98%`. The concepts of hyper-parameter-tuning and cross-validation helped to improve accuracy of `Gradient Boosting Trees` from only `81.8%` to about `99.8%` accuracy.
