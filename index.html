@@ -289,7 +289,7 @@ c(length(train$classe), length(test$classe))</code></pre>
 gc()</code></pre>
 <pre><code>##           used (Mb) gc trigger  (Mb) max used  (Mb)
 ## Ncells 1616335 86.4    2637877 140.9  2637877 140.9
-## Vcells 2734055 20.9   12924061  98.7 16154857 123.3</code></pre>
+## Vcells 2734060 20.9   12924062  98.7 16154858 123.3</code></pre>
 <p>The first model is <code>Random Forest</code>. It performs very well with defaults parameters obtaining <code>99.9%</code> of accuracy on test data therefore there is no need for hyper-parameter optimization via validation or crossvalidation.</p>
 <pre class="r"><code>fit.rf &lt;- suppressMessages(
   train(I(as.factor(classe)) ~ ., data = train, method = &quot;rf&quot;, trControl = trainControl(method = &quot;none&quot;)))
@@ -309,11 +309,9 @@ m$table</code></pre>
 ## AccuracyPValue  McnemarPValue 
 ##      0.0000000            NaN</code></pre>
 <p>The second model is <code>Gradient Boosting Trees</code>. The perfromance of that model with default parameters is relatively low compared to <code>Random Forests</code>. The accuracy only achives <code>81.8%</code> which is not acceptable.</p>
-<pre class="r"><code>fit.gbm &lt;- suppressMessages(
-  train(I(as.factor(classe)) ~ ., data = train, method = &quot;gbm&quot;, trControl = trainControl(method = &quot;none&quot;)))</code></pre>
-<pre><code>## Warning in if (nrow(x) != ifelse(class(y) == &quot;Surv&quot;, nrow(y), length(y)))
-## {: the condition has length &gt; 1 and only the first element will be used</code></pre>
-<pre class="r"><code>predictions.gbm &lt;- predict(fit.gbm, test)
+<pre class="r"><code>fit.gbm &lt;- suppressMessages(suppressWarnings(
+  train(I(as.factor(classe)) ~ ., data = train, method = &quot;gbm&quot;, trControl = trainControl(method = &quot;none&quot;))))
+predictions.gbm &lt;- predict(fit.gbm, test)
 m &lt;- confusionMatrix(data = predictions.gbm, reference = test$classe)</code></pre>
 <pre class="r"><code>m$table</code></pre>
 <pre><code>##           Reference
@@ -328,7 +326,7 @@ m &lt;- confusionMatrix(data = predictions.gbm, reference = test$classe)</code><
 ##   8.184908e-01   7.699953e-01   8.040786e-01   8.322666e-01   2.821210e-01 
 ## AccuracyPValue  McnemarPValue 
 ##   0.000000e+00   2.347830e-36</code></pre>
-<p>The typicall way to increase accuracy is hyper-parameter optimization employing cross-validation at every step to estimate out-of-sample error rate. Here the simpliest grid search is used supported by <code>2</code>-fold cross-validation to leverage execution time. The size of the search grid is only <code>8</code> combinations. This achives accuracy of <code>99.8%</code> which is a significant inprovement compared to previos model.</p>
+<p>The typicall way to increase accuracy is hyper-parameter optimization employing cross-validation at every step to estimate out-of-sample error rate. Here the simpliest grid search is used supported by <code>2</code>-fold cross-validation to leverage execution time. The size of the search grid is only <code>8</code> combinations. This achives accuracy of <code>99.9%</code> which is a significant inprovement compared to previos model.</p>
 <pre class="r"><code>control &lt;- trainControl(method = &quot;cv&quot;, number = 2, search = &quot;grid&quot;)
 grid &lt;- expand.grid(interaction.depth = c(3, 5), shrinkage = c(.01, .1), n.minobsinnode = c(10, 20), n.trees = 200)
 
@@ -394,7 +392,7 @@ table(x$agree) / length(x$agree)</code></pre>
 ##     FALSE      TRUE 
 ## 0.0139361 0.9860639</code></pre>
 <p>Now it is time to make predictions for the oservations with unknown target variable <code>classe</code>. The agreement accuracy is <code>100%</code> which is a good indicator. Submitting results to the grader gives accuracy of <code>100%</code>.</p>
-<pre class="r"><code>predictions.rf &lt;- predict(fit.rf, test.in)
+<pre class="r"><code>predictions.rf &lt;- suppressMessages(predict(fit.rf, test.in))
 predictions.gbm &lt;- predict(fit.gbm, test.in)
 D &lt;- xgb.DMatrix(as.matrix(test.in))
 predictions.xgb.raw &lt;- predict(fit.xgb, D)
@@ -421,7 +419,7 @@ table(x$agree) / length(x$agree)</code></pre>
 </div>
 <div id="results" class="section level1">
 <h1>Results</h1>
-<p>The analysis resulted in the robust three-model ansemble where the accuracy of every model on unseen dataset is greater than <code>98%</code>. The concepts of hyper-parameter-tuning and cross-validation helped to improve accuracy of <code>Gradient Boosting Trees</code> from only <code>81.8%</code> to about <code>99.8%</code> accuracy.</p>
+<p>The analysis resulted in the robust three-model ansemble where the accuracy of every model on unseen dataset is greater than <code>98.6%</code>. The concepts of hyper-parameter-tuning and cross-validation helped to improve accuracy of <code>Gradient Boosting Trees</code> from only <code>81.8%</code> to about <code>99.9%</code> accuracy.</p>
 </div>
 
 

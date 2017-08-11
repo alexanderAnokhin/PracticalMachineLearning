@@ -187,8 +187,8 @@ m$overall
 
 The second model is `Gradient Boosting Trees`. The perfromance of that model with default parameters is relatively low compared to `Random Forests`. The accuracy only achives `81.8%` which is not acceptable.
 ```{r gbm.model, results=F}
-fit.gbm <- suppressMessages(
-  train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = trainControl(method = "none")))
+fit.gbm <- suppressMessages(suppressWarnings(
+  train(I(as.factor(classe)) ~ ., data = train, method = "gbm", trControl = trainControl(method = "none"))))
 predictions.gbm <- predict(fit.gbm, test)
 m <- confusionMatrix(data = predictions.gbm, reference = test$classe)
 ```
@@ -198,7 +198,7 @@ m$table
 m$overall
 ```
 
-The typicall way to increase accuracy is hyper-parameter optimization employing cross-validation at every step to estimate out-of-sample error rate. Here the simpliest grid search is used supported by `2`-fold cross-validation to leverage execution time. The size of the search grid is only `8` combinations. This achives accuracy of `99.8%` which is a significant inprovement compared to previos model.
+The typicall way to increase accuracy is hyper-parameter optimization employing cross-validation at every step to estimate out-of-sample error rate. Here the simpliest grid search is used supported by `2`-fold cross-validation to leverage execution time. The size of the search grid is only `8` combinations. This achives accuracy of `99.9%` which is a significant inprovement compared to previos model.
 ```{r gbm.opt.model, results=F, cache=TRUE}
 control <- trainControl(method = "cv", number = 2, search = "grid")
 grid <- expand.grid(interaction.depth = c(3, 5), shrinkage = c(.01, .1), n.minobsinnode = c(10, 20), n.trees = 200)
@@ -254,7 +254,7 @@ table(x$agree) / length(x$agree)
 
 Now it is time to make predictions for the oservations with unknown target variable `classe`. The agreement accuracy is `100%` which is a good indicator. Submitting results to the grader gives accuracy of `100%`.
 ```{r prediction.test}
-predictions.rf <- predict(fit.rf, test.in)
+predictions.rf <- suppressMessages(predict(fit.rf, test.in))
 predictions.gbm <- predict(fit.gbm, test.in)
 D <- xgb.DMatrix(as.matrix(test.in))
 predictions.xgb.raw <- predict(fit.xgb, D)
@@ -274,4 +274,4 @@ table(x$rf)
 ```
 
 # Results
-The analysis resulted in the robust three-model ansemble where the accuracy of every model on unseen dataset is greater than `98%`. The concepts of hyper-parameter-tuning and cross-validation helped to improve accuracy of `Gradient Boosting Trees` from only `81.8%` to about `99.8%` accuracy.
+The analysis resulted in the robust three-model ansemble where the accuracy of every model on unseen dataset is greater than `98.6%`. The concepts of hyper-parameter-tuning and cross-validation helped to improve accuracy of `Gradient Boosting Trees` from only `81.8%` to about `99.9%` accuracy.
